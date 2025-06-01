@@ -1,0 +1,10 @@
+venv
+venv-dev
+docs/build
+nhc_text_files
+parsed_reports
+stac_items
+reports
+build
+*.egg-info
+/*.html

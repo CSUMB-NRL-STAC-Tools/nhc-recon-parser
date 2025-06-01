@@ -1,0 +1,47 @@
+[project]
+name = "stac_catalog"
+version = "0.1.0"
+description = "A Python application for STAC catalogs"
+authors = [
+    { name = "Zachary Davis", email = "zdavis@csumb.edu" },
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pystac",
+    "requests",
+    "beautifulsoup4",
+    "folium"
+    # "fastapi",
+]
+
+[project.scripts]
+generate-stac-items = "stac_catalog.main:main"
+gather-reports = "stac_catalog.gather_reports:main"
+generate-map = "stac_catalog.map_gen:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/stac_catlog"
+"Bug Tracker" = "https://github.com/yourusername/stac_catlog/issues"
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "sphinx",
+    "furo"
+    "pytest",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["stac_catalog"] # Find packages in the 'stac_catlog' directory
+package-dir = {"" = "src"} # src layout support

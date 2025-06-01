@@ -1,0 +1,8 @@
+pystac
+requests
+beautifulsoup4
+folium
+build
+sphinx
+furo
+pytest
