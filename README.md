@@ -25,7 +25,7 @@ The "NHC Recon STAC Tools" aim to enhance the accessibility and usability of his
 To set up the project locally, follow these steps:
 
 1. **Clone the repository:**
-   git clone "re"
+   git clone "https://github.com/zacharydavis0502/NHC-Recon-STAC-Tools.git"
    cd nhc-recon-stac-tools
 
 2. **Create and activate a virtual environment (recommended):**
