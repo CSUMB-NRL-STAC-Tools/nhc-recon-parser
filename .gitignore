@@ -8,3 +8,7 @@ reports
 build
 *.egg-info
 /*.html
+.vscode
+dist
+.env
+__pycache__

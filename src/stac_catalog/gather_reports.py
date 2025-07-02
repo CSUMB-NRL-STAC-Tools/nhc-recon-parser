@@ -14,7 +14,8 @@ import os
 from urllib.parse import urljoin # Corrected import
 __version__ = '1.0'
 def main():
-    """Downloads text file reports to the nhc_text_files directory
+    """
+    Downloads text file reports to the nhc_text_files directory
     
     The url webpage containing the text file links shall be provided as a
     command line argument.
@@ -65,6 +66,37 @@ def main():
 
     except requests.exceptions.RequestException as e:
         print(f"Error accessing the URL {url}: {e}")
+
+def get_file_content(file_url):
+    """
+    Downloads and returns the content of a text file from the specified URL.
+
+    :param file_url: The URL of the text file to download.
+    :type file_url: str
+    :return: The content of the file as a string.
+    :rtype: str
+    :raises requests.exceptions.RequestException: If the HTTP request fails.
+    """
+    response = requests.get(file_url)
+    response.raise_for_status()
+    return response.text
+
+def iter_urls_from_archive_page(archive_url):
+    """
+    Lazily yields text file URLs from the specified archive page.
+
+    :param archive_url: URL of the archive page containing text file links.
+    :yield: Full URLs to the text files, one at a time.
+    """
+    response = requests.get(archive_url)
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    for link in soup.find_all('a', href=True):
+        href = link['href']
+        if href.endswith('.txt'):
+            yield urljoin(archive_url, href)
 
 if __name__ == '__main__':
     main()

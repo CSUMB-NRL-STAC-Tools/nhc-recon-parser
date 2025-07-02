@@ -15,10 +15,11 @@ classifiers = [
 ]
 dependencies = [
     "pystac",
+    "pypgstac[psycopg]",
+    "dotenv",
     "requests",
     "beautifulsoup4",
     "folium"
-    # "fastapi",
 ]
 
 [project.scripts]
@@ -34,7 +35,7 @@ Homepage = "https://github.com/yourusername/stac_catlog"
 dev = [
     "build",
     "sphinx",
-    "furo"
+    "furo",
     "pytest",
 ]
 
