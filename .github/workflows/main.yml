@@ -1,0 +1,73 @@
+name: Build Python Package
+
+on:
+  push:
+    branches:
+      - main # Trigger on pushes to the main branch only
+    paths:
+      - '**.py'
+      - 'pyproject.toml'
+      - 'setup.py' # Include if you still have a setup.py
+  pull_request:
+    branches:
+      - main # Trigger on pull requests to the main branch only
+    paths:
+      - '**.py'
+      - 'pyproject.toml'
+      - 'setup.py'
+  workflow_dispatch: # Allows manual triggering of the workflow from the GitHub UI on any branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # Run on the latest Ubuntu runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for accurate versioning if needed
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x' # Use the latest Python 3 version available on the runner
+          cache: 'pip' # Cache pip dependencies to speed up builds
+
+      - name: Create and activate virtual environment
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+        # Note: Subsequent steps in the same job will automatically use the activated venv
+        # because the shell context is preserved.
+
+      - name: Install build dependencies
+        # The 'build' package is required to use 'python -m build'
+        run: |
+          source .venv/bin/activate
+          pip install build
+
+      - name: Install project dependencies from pyproject.toml
+        # This command installs the project in editable mode and its dependencies.
+        # It relies on your pyproject.toml correctly defining dependencies.
+        run: |
+          source .venv/bin/activate
+          pip install .
+
+      - name: Build sdist package
+        # Builds the source distribution (.tar.gz) of your package
+        run: |
+          source .venv/bin/activate
+          python -m build --sdist
+
+      - name: List built artifacts
+        # Show the contents of the 'dist/' directory where the sdist is created
+        run: |
+          ls -l dist/
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist-package
+          path: dist/*.tar.gz
+          # This will upload the generated .tar.gz file as a workflow artifact,
+          # which you can download from the workflow run summary.
