@@ -1,6 +1,6 @@
 [project]
-name = "stac_catalog"
-version = "0.1.0"
+name = "nhc_recon_parser"
+version = "1.0.0"
 description = "A Python application for STAC catalogs"
 authors = [
     { name = "Zachary Davis", email = "zdavis@csumb.edu" },
@@ -22,14 +22,9 @@ dependencies = [
     "folium"
 ]
 
-[project.scripts]
-generate-stac-items = "stac_catalog.main:main"
-gather-reports = "stac_catalog.gather_reports:main"
-generate-map = "stac_catalog.map_gen:main"
-
 [project.urls]
-Homepage = "https://github.com/yourusername/stac_catlog"
-"Bug Tracker" = "https://github.com/yourusername/stac_catlog/issues"
+Homepage = "https://github.com/CSUMB-NRL-STAC-Tools/nhc-recon-parser"
+"Bug Tracker" = "https://github.com/CSUMB-NRL-STAC-Tools/nhc-recon-parser/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -44,5 +39,5 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["stac_catalog"] # Find packages in the 'stac_catlog' directory
+packages = ["nhc_recon_parser"] # Find packages in the 'stac_catlog' directory
 package-dir = {"" = "src"} # src layout support
