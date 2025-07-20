@@ -15,6 +15,7 @@ import re
 import json
 from datetime import datetime, timezone
 import pystac
+from urllib.parse import urlparse
 __version__ = '1.0'
 
 def decode_pressure_height(group: str):
@@ -106,7 +107,7 @@ def decode_wind(group: str):
 
     return wind_direction, wind_speed
 
-def parse_temp_drop(message: str, filename: str):
+def parse_temp_drop(message: str, uri: str):
     """Parses a TEMP DROP observation message according to the NHOP 2024 Appendix G format.
 
     This function extracts header information, mandatory and significant levels,
@@ -115,9 +116,14 @@ def parse_temp_drop(message: str, filename: str):
 
     :param message: The raw TEMP DROP message string.
     :type message: str
+    :param uri: uri of the message file being parsed
+    :type uri: str
     :return: A dictionary containing the parsed data, or None if parsing fails.
     :rtype: dict
     """    
+    parsed_uri = urlparse(uri)
+    # The 'path' component contains the file path for file:// URIs or the path part of a URL.
+    filename = os.path.basename(parsed_uri.path)
     # Extract datetime from filename for message_date and for consistent day parsing
     datetime_str_from_filename = filename.split('.')[-2]
     try:
@@ -128,6 +134,7 @@ def parse_temp_drop(message: str, filename: str):
 
     lines = [line.strip() for line in message.split('\n') if line.strip()]
     parsed_data = {
+        "uri": uri,
         "message_date": id_datetime_part,
         "header": {},
         "part_a_mandatory_levels": [],
@@ -654,14 +661,12 @@ def parse_temp_drop(message: str, filename: str):
     return parsed_data
 
 
-def convert_dropsonde_to_stac_item(dropsonde_data: dict, dropsonde_path: str) -> pystac.Item:
+def convert_dropsonde_to_stac_item(dropsonde_data: dict) -> pystac.Item:
     """Converts a parsed dropsonde message (dictionary) into a pystac.Item,
     focused on "who, what, when, and where" metadata.
 
     :param dropsonde_data: The parsed dropsonde message as a dictionary
     :type dropsonde_data: dict
-    :param dropsonde_path: The path of the original dropsonde message file.
-    :type dropsonde_path: str
     :return: A pystac Item representing the dropsonde data
     :rtype: pystac.Item
     """    
@@ -756,7 +761,7 @@ def convert_dropsonde_to_stac_item(dropsonde_data: dict, dropsonde_path: str) ->
     item.add_asset(
         key="raw_dropsonde_message",
         asset=pystac.Asset(
-            href=dropsonde_path,
+            href=dropsonde_data['uri'],
             media_type=pystac.MediaType.TEXT,
             title="Raw Dropsonde Message",
             roles=["metadata", "source-data"] # Define roles for the asset

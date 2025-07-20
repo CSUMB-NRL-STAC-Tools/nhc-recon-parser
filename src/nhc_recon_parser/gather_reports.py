@@ -12,6 +12,7 @@ import requests
 from bs4 import BeautifulSoup
 import os
 from urllib.parse import urljoin, urlparse
+import pathlib
 __version__ = '1.0'
 
 def read_dropsonde_message(path):
@@ -23,7 +24,7 @@ def read_dropsonde_message(path):
         path (str): The path to the file or URL to read.
 
     Returns:
-        tuple: content and filename
+        tuple[str, str]: content and message URI
 
     Raises:
         FileNotFoundError: If the local file does not exist.
@@ -37,14 +38,14 @@ def read_dropsonde_message(path):
             print(f"Attempting to read content from URL: {path}")
             response = requests.get(path)
             response.raise_for_status()  # Raise an exception for HTTP errors (4xx or 5xx)
-            return (response.text, requests.urllib3.util.parse_url(path).path.split('/')[-1])
+            return (response.text, path)
         else:
             # Assume it's a local file path
             print(f"Attempting to read content from local file: {path}")
             if not os.path.exists(path):
                 raise FileNotFoundError(f"Local file not found: {path}")
             with open(path, 'r', encoding='utf-8') as f:
-                return (f.read(), os.path.basename(path))
+                return (f.read(), pathlib.Path(path).resolve().as_uri())
     except FileNotFoundError as e:
         print(f"Error: {e}")
         raise
