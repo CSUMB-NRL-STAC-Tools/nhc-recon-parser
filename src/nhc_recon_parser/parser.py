@@ -1,7 +1,6 @@
 """
 Parses NHC Aircraft Reconnaissance data TEMP DROP text files into STAC items.
 
-.. seealso:: :py:mod:`gather_reports`, :py:mod:`map_gen`
 .. notes:: TEMP DROP message text files to parse must exist in the nhc_text_files 
 
 .. author:: Zachary Davis <zdavis@csumb.edu>
@@ -15,21 +14,8 @@ import sys
 import re
 import json
 from datetime import datetime, timezone
-import urllib3
 import pystac
-from . import gather_reports
-from . import db_util
 __version__ = '1.0'
-
-def get_filename_from_url(url: str):
-    """Extracts the filename from a URL.
-
-    :param url: The URL to extract the filename from
-    :type url: str
-    :return: The filename extracted from the URL
-    :rtype: str
-    """
-    return  urllib3.util.parse_url(url).path.split('/')[-1]
 
 def decode_pressure_height(group: str):
     """Decodes the PnPnhnhnhn group for pressure and height.
@@ -125,7 +111,7 @@ def parse_temp_drop(message: str, filename: str):
 
     This function extracts header information, mandatory and significant levels,
     tropopause, maximum wind data, and provides human-readable parsing for remarks.
-    The day attribute in the header is no longer parsed from the message, relying on the filename.
+    Datetime is gathered from the filename.
 
     :param message: The raw TEMP DROP message string.
     :type message: str
@@ -668,21 +654,21 @@ def parse_temp_drop(message: str, filename: str):
     return parsed_data
 
 
-def convert_dropsonde_to_stac_item(dropsonde_data: dict, dropsonde_url: str) -> pystac.Item:
+def convert_dropsonde_to_stac_item(dropsonde_data: dict, dropsonde_path: str) -> pystac.Item:
     """Converts a parsed dropsonde message (dictionary) into a pystac.Item,
     focused on "who, what, when, and where" metadata.
 
     :param dropsonde_data: The parsed dropsonde message as a dictionary
     :type dropsonde_data: dict
-    :param dropsonde_url: The URL of the original dropsonde message file.
-    :type dropsonde_url: str
+    :param dropsonde_path: The path of the original dropsonde message file.
+    :type dropsonde_path: str
     :return: A pystac Item representing the dropsonde data
     :rtype: pystac.Item
     """    
     header = dropsonde_data.get('header', {})
     part_a_sounding_system = dropsonde_data.get('part_a_sounding_system', {})
     remarks = dropsonde_data.get('remarks', {})
-    dt_utc_string = dropsonde_data['message_date'].isoformat().replace('+00:00', 'Z') # Ensure 'Z' for UTC
+    dt_utc_string = dropsonde_data['message_date'].isoformat().replace('+00:00', 'Z').replace(':', '-') # Ensure 'Z' for UTC and replace : in time
 
     # 1. STAC ID: Create a unique ID for the STAC Item.
     stac_id = f"{header.get('wmo_header', 'unknown')}-{header.get('icao_originator', 'unknown')}-{dt_utc_string}-dropsonde"
@@ -763,36 +749,18 @@ def convert_dropsonde_to_stac_item(dropsonde_data: dict, dropsonde_url: str) -> 
         bbox=bbox,
         datetime=dropsonde_data['message_date'],
         properties=properties,
-        collection="dropsonde",  # Ensure this matches your collection ID
         stac_extensions=[] # Add relevant extensions here if you use them (e.g., "https://stac-extensions.github.io/forecast/v0.2.0/schema.json")
     )
 
-    # Add the original dropsonde JSON file as an asset to the STAC Item
+    # Add the original dropsonde TEXT file as an asset to the STAC Item
     item.add_asset(
         key="raw_dropsonde_message",
         asset=pystac.Asset(
-            href=dropsonde_url,
+            href=dropsonde_path,
             media_type=pystac.MediaType.TEXT,
             title="Raw Dropsonde Message",
             roles=["metadata", "source-data"] # Define roles for the asset
         )
     )
-    # try:
-    #     item.validate()
-    #     print(f'{item.id} is a valid STAC Item.')
-    # except Exception as e:
-    #     print(f'Validation error for STAC Item {item.id}: {e}')
-    #     exit()
 
     return item
-
-if __name__ == "__main__":
-    # Example usage
-    url = sys.argv[1]
-    filename = get_filename_from_url(url)
-    file_content = gather_reports.get_file_content(url)
-    dropsonde_report = parse_temp_drop(file_content, filename)
-    stac_item = convert_dropsonde_to_stac_item(dropsonde_report, url)
-    print(f"STAC Item ID: {stac_item.id}")
-    print(f"STAC Item Properties: {stac_item.properties}")
-    db_util.add_item_to_catlog(stac_item)
