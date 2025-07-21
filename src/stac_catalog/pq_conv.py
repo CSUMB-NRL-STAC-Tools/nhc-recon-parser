@@ -119,11 +119,8 @@ if all_parsed_rows:
     print(df)
 
     # --- Write to Parquet file using Polars ---
-    output_parquet_file = "dropsonde_observations_parsed_with_main_py.parquet"
+    output_parquet_file = "dropsonde_observations.parquet"
     df.write_parquet(output_parquet_file)
-
-    print(f"\nSuccessfully converted parsed dropsonde data to '{output_parquet_file}' using Polars.")
-    print(f"You can now read this file back using: pl.read_parquet('{output_parquet_file}')")
 
 else:
     print("No valid dropsonde observations found to convert to Parquet.")
