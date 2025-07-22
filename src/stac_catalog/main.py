@@ -1,101 +1,44 @@
-"""
-Parses NHC Aircraft Reconnaissance data TEMP DROP text files into STAC items.
-
-.. seealso:: :py:mod:`gather_reports`, :py:mod:`map_gen`
-.. notes:: TEMP DROP message text files to parse must exist in the nhc_text_files 
-
-.. author:: Zachary Davis <zdavis@csumb.edu>
-
-.. changelog::
-    .. versionadded:: 1.0
-        Initial release of the module with core functionalities.
-"""
 import os
 import re
 import json
 from datetime import datetime, timezone
 import pystac
-__version__ = '1.0'
+import sys
+import gather_reports as gr
+import map_gen as mg
+
 
 def decode_wind(wind_group_str: str):
-    """ Decodes a 5-digit wind group (dndnfnfnfn) into true wind direction and speed
-
-    Format: dndn (hundreds/tens of degrees) + f_hundreds_plus_d_unit (hundreds of speed + unit of direction) + f_tens_units (tens/units of speed).
-    Example: 29625 -> 295 degrees, 125 knots.
-    Example: 09596 -> 095 degrees, 096 knots.
-
-    :param wind_group_str: 5-digit wind group
-    :type wind_group_str: str
-    :return: wind direction and speed
-    :rtype: tuple
-    """    
     if len(wind_group_str) != 5 or not wind_group_str.isdigit():
-        return None, None # Invalid format
-
+        return None, None
     d_hundreds_tens = int(wind_group_str[0:2])
     f_hundreds_plus_d_unit = int(wind_group_str[2])
     f_tens_units = int(wind_group_str[3:5])
-
-    # Deduce the unit digit of direction (0 or 5) and the actual hundreds digit of speed
     if f_hundreds_plus_d_unit >= 5:
         d_unit = 5
         f_hundreds = f_hundreds_plus_d_unit - 5
     else:
         d_unit = 0
         f_hundreds = f_hundreds_plus_d_unit
-
     direction = d_hundreds_tens * 10 + d_unit
     speed = f_hundreds * 100 + f_tens_units
-
     return direction, speed
 
 def decode_temp_dewpoint(temp_dew_group_str: str):
-    """Decodes a 5-digit temperature/dew point depression group (TTTDD)
-
-    Assumes TTT is temperature in tenths of degrees Celsius, and DD is dew point depression in whole degrees Celsius.
-    Example: 22606 -> Temperature: 22.6 C, Dew Point Depression: 6 C.
-    
-    :param temp_dew_group_str: 5-digit temperature/dew point depression group
-    :type temp_dew_group_str: str
-    :return: temperature and dew point depression
-    :rtype: tuple
-    """    
     if len(temp_dew_group_str) != 5 or not temp_dew_group_str.isdigit():
         return None, None
-
-    # Interpret TTT as temperature in tenths, DD as dew point depression
     temperature = float(temp_dew_group_str[0:3]) / 10.0
     dew_point_depression = int(temp_dew_group_str[3:5])
-
     return temperature, dew_point_depression
 
 def decode_pressure_height(pressure_height_group_str: str):
-    """Decodes a 5-digit pressure/height group (PPP_HH)
-
-    Assumes PPP is pressure in whole millibars, and HH is height in tens of meters.
-    Example: 92510 -> Pressure: 925 mb, Height: 100 m.
-
-    :param pressure_height_group_str: 5-digit pressure/height group (PPP_HH)
-    :type pressure_height_group_str: str
-    :return: pressure and height
-    :rtype: tuple
-    """    
     if len(pressure_height_group_str) != 5 or not pressure_height_group_str.isdigit():
         return None, None
-
     pressure = int(pressure_height_group_str[0:3])
-    height = int(pressure_height_group_str[3:5]) * 10 # Convert tens of meters to meters
-
+    height = int(pressure_height_group_str[3:5]) * 10
     return pressure, height
 
 def parse_temp_drop(message: str):
-    """Parses a TEMP DROP observation message according to the NHOP 2024 Appendix G format.
-
-    :param message: The raw TEMP DROP message string
-    :type message: str
-    :return: A dictionary containing the parsed data, or None if parsing fails
-    :rtype: dict
-    """    
     lines = [line.strip() for line in message.split('\n') if line.strip()]
     parsed_data = {
         "header": {},
@@ -107,24 +50,15 @@ def parse_temp_drop(message: str):
         "part_b_significant_wind": [],
         "remarks": {}
     }
-
-    part_a_active = False
+    part_a_active = False # Keep track of which part's data we are currently parsing
     part_b_active = False
 
     for i, line in enumerate(lines):
-        # Skip empty lines
         if not line:
             continue
         
-        # WMO Header Line (always first line of the message)
+        # Original logic for WMO header parsing at i == 0 (e.g., "USNT13 KNHC 202100")
         if i == 0:
-            parsed_data["header"] = {
-                "sonde_serial": line,
-            }
-            continue
-
-        # WMO Header Line (always second line of the message)
-        if i == 1:
             parts = line.split()
             if len(parts) >= 3:
                 parsed_data["header"] = {
@@ -132,125 +66,142 @@ def parse_temp_drop(message: str):
                     "icao_originator": parts[1],
                     "transmission_date_time_group": parts[2]
                 }
+                if parts[0].startswith("URPN"): 
+                    pass 
             continue
 
-        # Part A Header (XXAA)
-        if line.startswith("XXAA"):
-            part_a_active = True
-            part_b_active = False # Ensure only one part is active at a time
-            header_data_parts = line.split()
-            if len(header_data_parts) >= 5: # XXAA YYGGId 99LaLaLa QcLoLoLoLo MMMULaULo
+        # Logic to handle XXAA and XXBB lines dynamically
+        if line.startswith("XXAA") or line.startswith("XXBB"):
+            parts = line.split()
+            if len(parts) >= 5 and parts[1].isdigit() and len(parts[1]) == 5:
+                identifier = parts[0]
+                day_hour_id_indicator = parts[1]
+                lat_str = parts[2]
+                lon_str = parts[3]
+                marsden_str = parts[4]
+
+                if identifier.startswith("XXBB"):
+                    part_b_active = True
+                    part_a_active = False
+                    prefix = "part_b_"
+                else:
+                    part_a_active = True
+                    part_b_active = False
+                    prefix = "part_a_"
+
                 try:
-                    parsed_data["header"]["part_a_identifier"] = header_data_parts[0] # XXAA
-                    parsed_data["header"]["part_a_day"] = int(header_data_parts[1][0:2])
-                    parsed_data["header"]["part_a_hour"] = int(header_data_parts[1][2:4])
-                    parsed_data["header"]["part_a_id_indicator"] = int(header_data_parts[1][4])
+                    parsed_data["header"][f"{prefix}identifier"] = identifier
+                    parsed_data["header"][f"{prefix}day"] = int(day_hour_id_indicator[0:2])
+                    parsed_data["header"][f"{prefix}hour"] = int(day_hour_id_indicator[2:4])
+                    parsed_data["header"][f"{prefix}id_indicator"] = int(day_hour_id_indicator[4])
                     
-                    # Latitude: 99LaLaLa (99 is indicator, LaLaLa is degrees and tenths)
-                    lat_str = header_data_parts[2]
-                    parsed_data["header"]["part_a_latitude"] = float(lat_str[2:]) / 10.0
+                    parsed_data["header"][f"{prefix}latitude"] = float(lat_str[2:]) / 10.0
                     
-                    # Longitude: QcLoLoLoLo (Qc is quadrant, LoLoLoLo is degrees and tenths)
-                    lon_str = header_data_parts[3]
-                    quadrant_a = int(lon_str[0])
-                    parsed_data["header"]["part_a_quadrant"] = quadrant_a
-                    parsed_data["header"]["part_a_longitude"] = float(lon_str[1:]) / 10.0
+                    quadrant = int(lon_str[0])
+                    parsed_data["header"][f"{prefix}quadrant"] = quadrant
+                    parsed_data["header"][f"{prefix}longitude"] = float(lon_str[1:]) / 10.0
 
-                    # Apply quadrant correction for Part A
-                    if quadrant_a in [3, 5]: # South (negative latitude)
-                        parsed_data["header"]["part_a_latitude"] *= -1
-                    if quadrant_a in [5, 7]: # West (negative longitude)
-                        parsed_data["header"]["part_a_longitude"] *= -1
+                    if quadrant in [3, 5]:
+                        parsed_data["header"][f"{prefix}latitude"] *= -1
+                    if quadrant in [5, 7]:
+                        parsed_data["header"][f"{prefix}longitude"] *= -1
 
-                    # Marsden Square: MMMULaULo
-                    marsden_str = header_data_parts[4]
-                    parsed_data["header"]["part_a_marsden_square"] = int(marsden_str[0:3])
-                    parsed_data["header"]["part_a_ula"] = int(marsden_str[3]) # Ula (Quadrant)
-                    parsed_data["header"]["part_a_ulo"] = int(marsden_str[4]) # Ulo (Longitude tens of degrees)
+                    parsed_data["header"][f"{prefix}marsden_square"] = int(marsden_str[0:3])
+                    parsed_data["header"][f"{prefix}ula"] = int(marsden_str[3])
+                    parsed_data["header"][f"{prefix}ulo"] = int(marsden_str[4])
 
                 except ValueError as e:
-                    print(f"Warning: Error parsing XXAA header line: {e}. Skipping header details.")
+                    print(f"Warning: Error parsing {identifier} line '{line}': {e}. Skipping details for this section.")
             continue
 
-        # Part B Header (XXBB)
-        if line.startswith("XXBB"):
-            part_b_active = True
-            part_a_active = False # Ensure only one part is active at a time
-            header_data_parts = line.split()
-            if len(header_data_parts) >= 5: # XXBB YYGG8 99LaLaLa QcLoLoLoLo MMMULaULo
+        # NEW LOGIC: Handle "B." line for VORTEX DATA MESSAGE (URPN/REPPN2 files)
+        elif line.startswith("B."):
+            match = re.search(r'B.\s+(\d+\.\d+)\s+deg\s+([NS])\s+(\d+\.\d+)\s+deg\s+([EW])', line)
+            if match:
                 try:
-                    parsed_data["header"]["part_b_identifier"] = header_data_parts[0] # XXBB
-                    parsed_data["header"]["part_b_day"] = int(header_data_parts[1][0:2])
-                    parsed_data["header"]["part_b_hour"] = int(header_data_parts[1][2:4])
-                    parsed_data["header"]["part_b_id_indicator"] = int(header_data_parts[1][4]) # Should be 8
+                    lat_val = float(match.group(1))
+                    lat_dir = match.group(2)
+                    lon_val = float(match.group(3))
+                    lon_dir = match.group(4)
+
+                    # Convert to decimal degrees
+                    latitude = lat_val if lat_dir == 'N' else -lat_val
+                    longitude = lon_val if lon_dir == 'E' else -lon_val
+
+                    # For Vortex Data Messages, this is the primary and often only location.
+                    parsed_data["header"]["part_a_latitude"] = latitude
+                    parsed_data["header"]["part_a_longitude"] = longitude
+                    parsed_data["header"]["part_b_latitude"] = latitude
+                    parsed_data["header"]["part_b_longitude"] = longitude
                     
-                    lat_str = header_data_parts[2]
-                    parsed_data["header"]["part_b_latitude"] = float(lat_str[2:]) / 10.0
-                    
-                    lon_str = header_data_parts[3]
-                    quadrant_b = int(lon_str[0])
-                    parsed_data["header"]["part_b_quadrant"] = quadrant_b
-                    parsed_data["header"]["part_b_longitude"] = float(lon_str[1:]) / 10.0
-
-                    # Apply quadrant correction for Part B
-                    if quadrant_b in [3, 5]: # South (negative latitude)
-                        parsed_data["header"]["part_b_latitude"] *= -1
-                    if quadrant_b in [5, 7]: # West (negative longitude)
-                        parsed_data["header"]["part_b_longitude"] *= -1
-
-                    marsden_str = header_data_parts[4]
-                    parsed_data["header"]["part_b_marsden_square"] = int(marsden_str[0:3])
-                    parsed_data["header"]["part_b_ula"] = int(marsden_str[3])
-                    parsed_data["header"]["part_b_ulo"] = int(marsden_str[4])
-
                 except ValueError as e:
-                    print(f"Warning: Error parsing XXBB header line: {e}. Skipping header details.")
-            continue
+                    print(f"Warning: Error parsing coordinates from 'B.' line '{line}': {e}. Skipping coordinates.")
+            else:
+                print(f"Warning: 'B.' line found but could not parse coordinates using regex: {line}")
+            continue # Continue to next line after processing B.
 
-        # Section 7: Sounding System, Radiosonde/System Status, Launch Time (31313 group)
+        # Existing logic for 31313, 61616, 62626, mandatory levels etc.
+
         if line.startswith("31313"):
             parts = line.split()
             if len(parts) >= 3:
                 try:
                     srrarasasa = parts[1]
                     launch_time_group = parts[2]
-                    parsed_data["part_a_sounding_system"] = { # This section applies to both Part A and B
-                        "sounding_system_indicator_raw": srrarasasa,
-                        "solar_ir_correction": int(srrarasasa[0]),
-                        "radiosonde_system_used": int(srrarasasa[1:3]), # 96 for Descending radiosonde
-                        "tracking_technique_status": int(srrarasasa[3:5]), # 08 for Automatic satellite navigation
-                        "launch_time_indicator": int(launch_time_group[0]), # Should be 8
-                        "launch_hour_utc": int(launch_time_group[1:3]),
-                        "launch_minute_utc": int(launch_time_group[3:5])
-                    }
+                    if part_a_active:
+                        parsed_data["part_a_sounding_system"] = {
+                            "sounding_system_indicator_raw": srrarasasa,
+                            "solar_ir_correction": int(srrarasasa[0]),
+                            "radiosonde_system_used": int(srrarasasa[1:3]),
+                            "tracking_technique_status": int(srrarasasa[3:5]),
+                            "launch_time_indicator": int(launch_time_group[0]),
+                            "launch_hour_utc": int(launch_time_group[1:3]),
+                            "launch_minute_utc": int(launch_time_group[3:5])
+                        }
+                    elif part_b_active:
+                         parsed_data["part_b_sounding_system"] = {
+                            "sounding_system_indicator_raw": srrarasasa,
+                            "solar_ir_correction": int(srrarasasa[0]),
+                            "radiosonde_system_used": int(srrarasasa[1:3]),
+                            "tracking_technique_status": int(srrarasasa[3:5]),
+                            "launch_time_indicator": int(launch_time_group[0]),
+                            "launch_hour_utc": int(launch_time_group[1:3]),
+                            "launch_minute_utc": int(launch_time_group[3:5])
+                        }
+                    else: # Handle 31313 for non-XXAA/XXBB reports like URPN
+                        # If no active part, assign to a general sounding_system or Part A if it's the primary system
+                        parsed_data["sounding_system"] = { # Creating a general sounding system key
+                            "sounding_system_indicator_raw": srrarasasa,
+                            "solar_ir_correction": int(srrarasasa[0]),
+                            "radiosonde_system_used": int(srrarasasa[1:3]),
+                            "tracking_technique_status": int(srrarasasa[3:5]),
+                            "launch_time_indicator": int(launch_time_group[0]),
+                            "launch_hour_utc": int(launch_time_group[1:3]),
+                            "launch_minute_utc": int(launch_time_group[3:5])
+                        }
                 except ValueError as e:
                     print(f"Warning: Error parsing Section 7 (31313) line: {e}. Skipping sounding system details.")
             continue
-
-        # Section 10: Remarks (61616 and 62626 groups)
         if line.startswith("61616"):
             parsed_data["remarks"]["mission_info"] = line[6:].strip()
             continue
         if line.startswith("62626"):
             remark_string = line[6:].strip()
-            # Use regex to split by known remark keys, keeping the keys
             remark_segments = re.split(r'(MBL WND|AEV|DLM WND|WL|REL|SPG|EYEWALL)', remark_string)
             
-            current_key = "initial_description" # Default key for the first segment
+            current_key = "initial_description"
             for segment in remark_segments:
                 segment = segment.strip()
                 if not segment:
                     continue
                 
-                # Check if the segment is one of the known keys
                 if segment in ["MBL WND", "AEV", "DLM WND", "WL", "REL", "SPG", "EYEWALL"]:
-                    current_key = segment.replace(" ", "_").lower() # Convert to snake_case for dictionary key
+                    current_key = segment.replace(" ", "_").lower()
                 else:
-                    if current_key: # Only assign if a key is active
+                    if current_key:
                         parsed_data["remarks"][current_key] = segment
-                    current_key = None # Reset key after assigning value
+                    current_key = None
 
-            # Further parse REL and SPG for location and time if available
             if "rel" in parsed_data["remarks"] and parsed_data["remarks"]["rel"]:
                 rel_parts = parsed_data["remarks"]["rel"].split()
                 if len(rel_parts) >= 3:
@@ -262,16 +213,12 @@ def parse_temp_drop(message: str):
                     parsed_data["remarks"]["spg_location"] = spg_parts[0]
                     parsed_data["remarks"]["spg_time"] = spg_parts[1]
             continue
-
-        # Data lines for Part A (Mandatory Levels, Tropopause, Max Wind)
-        if part_a_active:
-            # Mandatory Levels (Section 2)
-            # Lines containing repeating groups of PnPnhnhnhn TTTaDD dddff
-            # This regex looks for 5-digit numbers separated by spaces, assuming groups of 3 for each level
-            if re.match(r'^(\d{5}\s+){2}\d{5}(\s+\d{5}\s+\d{5}\s+\d{5})*$', line) or \
-               re.match(r'^\d{3}\d{2}\s+\d{3}\d{2}\s+\d{5}(\s+\d{3}\d{2}\s+\d{3}\d{2}\s+\d{5})*$', line): # More specific for PPPP HH TTTDD DDDFF
+        
+        if part_a_active: # This block is primarily for REPNT-style reports
+            # Mandatory Levels (Part A)
+            if re.match(r'^\d{5}\s+\d{5}\s+\d{5}(\s+\d{5}\s+\d{5}\s+\d{5})*$', line) or \
+               re.match(r'^\d{3}\d{2}\s+\d{3}\d{2}\s+\d{5}(\s+\d{3}\d{2}\s+\d{3}\d{2}\s+\d{5})*$', line):
                 groups = line.split()
-                # Process groups in sets of 3 (pressure/height, temp/dewpoint, wind)
                 for j in range(0, len(groups), 3):
                     if j + 2 < len(groups):
                         try:
@@ -288,16 +235,15 @@ def parse_temp_drop(message: str):
                             })
                         except ValueError as e:
                             print(f"Warning: Error parsing Part A mandatory level group '{groups[j]} {groups[j+1]} {groups[j+2]}': {e}. Skipping this group.")
-                continue # Move to next line
-
-            # Tropopause Level (Section 3: 88PtPtPt TtTtTatDtDt dtdtftftft or 88999)
+                continue
+            # Tropopause (Part A)
             if line.startswith("88"):
                 parts = line.split()
                 if parts[0] == "88999":
                     parsed_data["part_a_tropopause"] = {"not_observed": True}
                 elif len(parts) >= 3:
                     try:
-                        pressure = int(parts[0][2:]) # 88PtPtPt
+                        pressure = int(parts[0][2:])
                         temp, dew_point_depression = decode_temp_dewpoint(parts[1])
                         wind_dir, wind_speed = decode_wind(parts[2])
                         parsed_data["part_a_tropopause"] = {
@@ -310,23 +256,22 @@ def parse_temp_drop(message: str):
                     except ValueError as e:
                         print(f"Warning: Error parsing Section 3 (Tropopause) line: {e}. Skipping tropopause details.")
                 continue
-
-            # Maximum Wind Data (Section 4: 77PmPmPm dmdmfmfmfm (4vbvbvava) or 66PmPmPm ...)
+            # Max Wind (Part A)
             if line.startswith("77") or line.startswith("66"):
                 parts = line.split()
                 if parts[0] == "77999":
                     parsed_data["part_a_max_wind"] = {"not_observed": True}
                 elif len(parts) >= 2:
                     try:
-                        pressure = int(parts[0][2:]) # 77PmPmPm or 66PmPmPm
+                        pressure = int(parts[0][2:])
                         wind_dir, wind_speed = decode_wind(parts[1])
                         max_wind_data = {
-                            "indicator": parts[0][0:2], # 77 or 66
+                            "indicator": parts[0][0:2],
                             "pressure_mb": pressure,
                             "wind_direction_deg": wind_dir,
                             "wind_speed_kt": wind_speed
                         }
-                        if len(parts) > 2 and parts[2].startswith("4"): # Vertical wind shear (4vbvbvava)
+                        if len(parts) > 2 and parts[2].startswith("4"):
                             vbvb = int(parts[2][1:3])
                             vava = int(parts[2][3:5])
                             max_wind_data["vertical_wind_shear"] = {
@@ -337,14 +282,11 @@ def parse_temp_drop(message: str):
                     except ValueError as e:
                         print(f"Warning: Error parsing Section 4 (Max Wind) line: {e}. Skipping max wind details.")
                 continue
-
-        # Data lines for Part B (Significant Levels)
-        if part_b_active:
-            # Significant Temperature and Humidity Levels (Section 5: nonoPoPoPo ToToTaoDoDo)
-            # This regex looks for repeating groups of 5-digit numbers for level info and temp/dewpoint
+        
+        if part_b_active: # This block is primarily for REPNT-style reports
+            # Significant Temperature and Humidity Levels (Part B)
             if re.match(r'^(\d{5}\s+){1}\d{5}(\s+\d{5}\s+\d{5})*$', line):
                 groups = line.split()
-                # Process groups in sets of 2 (level/pressure, temp/dewpoint)
                 for j in range(0, len(groups), 2):
                     if j + 1 < len(groups):
                         try:
@@ -360,12 +302,10 @@ def parse_temp_drop(message: str):
                         except ValueError as e:
                             print(f"Warning: Error parsing Part B significant temp/humidity group '{groups[j]} {groups[j+1]}': {e}. Skipping this group.")
                 continue
-
-            # Significant Wind Levels (Section 6: 21212 nonoPoPoPo dodofofofo)
+            # Significant Wind Levels (Part B) - starts with "21212"
             if line.startswith("21212"):
-                data_string = line[6:].strip() # Remove "21212 "
+                data_string = line[6:].strip()
                 groups = data_string.split()
-                # Process groups in sets of 2 (level/pressure, wind)
                 for j in range(0, len(groups), 2):
                     if j + 1 < len(groups):
                         try:
@@ -381,17 +321,26 @@ def parse_temp_drop(message: str):
                         except ValueError as e:
                             print(f"Warning: Error parsing Section 6 significant wind group '{groups[j]} {groups[j+1]}': {e}. Skipping this group.")
                 continue
+    
+    # If one is present and the other is not, set them to be equal to allow verify_lat_longs to proceed.
+    if "part_a_latitude" in parsed_data["header"] and "part_b_latitude" not in parsed_data["header"]:
+        parsed_data["header"]["part_b_latitude"] = parsed_data["header"]["part_a_latitude"]
+        parsed_data["header"]["part_b_longitude"] = parsed_data["header"]["part_a_longitude"]
+    elif "part_b_latitude" in parsed_data["header"] and "part_a_latitude" not in parsed_data["header"]:
+        parsed_data["header"]["part_a_latitude"] = parsed_data["header"]["part_b_latitude"]
+        parsed_data["header"]["part_a_longitude"] = parsed_data["header"]["part_b_longitude"]
+    # If neither is present, ensure they are at least None to avoid errors later.
+    if "part_a_latitude" not in parsed_data["header"]:
+        parsed_data["header"]["part_a_latitude"] = None
+        parsed_data["header"]["part_a_longitude"] = None
+    if "part_b_latitude" not in parsed_data["header"]:
+        parsed_data["header"]["part_b_latitude"] = None
+        parsed_data["header"]["part_b_longitude"] = None
+
 
     return parsed_data
 
 def verify_lat_longs(directory: str):
-    """Checks if parsed Latitude and Longitudes from part A and B match
-
-    :param directory: directory of parsed TEMP DROP json files
-    :type directory: str
-    :return: all latitude and longitudes matched
-    :rtype: bool
-    """    
     files = os.listdir(directory)
     for file in files:
         path = os.path.join(directory, file)
@@ -406,44 +355,23 @@ def verify_lat_longs(directory: str):
     return True
 
 def convert_dropsonde_to_stac_item(dropsonde_data: dict, original_filename: str) -> pystac.Item:
-    """Converts a parsed dropsonde message (dictionary) into a pystac.Item
-
-    :param dropsonde_data: The parsed dropsonde message as a dictionary
-    :type dropsonde_data: dict
-    :param original_filename: The filename of the original dropsonde JSON data.
-    :type original_filename: str
-    :return: A pystac Item representing the dropsonde data
-    :rtype: pystac.Item
-    """    
     header = dropsonde_data.get('header', {})
     part_a_sounding_system = dropsonde_data.get('part_a_sounding_system', {})
     part_b_significant_wind = dropsonde_data.get('part_b_significant_wind', [])
 
-    # 1. STAC ID: Create a unique ID for the STAC Item.
-    # We'll use the ICAO originator and the transmission date/time from the filename
-    # for a unique identifier. Assuming the filename format is consistent.
-    # Example filename: REPPA3-KNHC.202502030504.json
     try:
-        # Extract date and time from the filename (e.g., '202502030504')
         datetime_str_from_filename = original_filename.split('.')[-2]
-        # Format it into a more readable string for the ID
         id_datetime_part = datetime.strptime(datetime_str_from_filename, '%Y%m%d%H%M').strftime('%Y%m%d%H%M')
         stac_id = f"{header.get('icao_originator', 'unknown')}-{id_datetime_part}-dropsonde"
     except (IndexError, ValueError):
-        # Fallback if filename parsing fails
         stac_id = f"dropsonde-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
         print(f"Warning: Could not parse datetime from filename '{original_filename}'. Using current UTC time for ID.")
 
-
-    # 2. Geometry and Bounding Box: Represent the dropsonde's launch location.
-    # The dropsonde data contains latitude and longitude in the header.
-    # Use the corrected latitude/longitude from the parsed data
     longitude = header.get('part_a_longitude')
     latitude = header.get('part_a_latitude')
 
     if longitude is None or latitude is None:
         print("Error: Latitude or Longitude missing from dropsonde header. Cannot create valid geometry.")
-        # Provide a default or raise an error, depending on desired behavior
         geometry = None
         bbox = None
     else:
@@ -451,26 +379,16 @@ def convert_dropsonde_to_stac_item(dropsonde_data: dict, original_filename: str)
             "type": "Point",
             "coordinates": [longitude, latitude]
         }
-        # For a point, the bbox is [lon, lat, lon, lat]
         bbox = [longitude, latitude, longitude, latitude]
 
-    # 3. Datetime: The primary temporal extent of the asset.
-    # We'll use the transmission date/time from the filename, converted to UTC.
     try:
-        # Assuming filename datetime is UTC
         dt_object_utc = datetime.strptime(datetime_str_from_filename, '%Y%m%d%H%M').replace(tzinfo=timezone.utc)
     except (ValueError, NameError):
-        # Fallback if filename datetime parsing failed or datetime_str_from_filename is not defined
         dt_object_utc = datetime.now(timezone.utc)
         print("Warning: Could not determine precise datetime from filename. Using current UTC time for STAC datetime.")
 
-    # 4. Properties: Add all relevant metadata from the dropsonde message.
-    # We'll include various header fields, sounding system details, and significant wind data.
     properties = {
-        # STAC Common Metadata fields
-        "datetime": dt_object_utc.isoformat(), # ISO 8601 format with Z for UTC
-
-        # Dropsonde-specific metadata from the header
+        "datetime": dt_object_utc.isoformat(),
         "wmo_header": header.get('wmo_header'),
         "icao_originator": header.get('icao_originator'),
         "transmission_date_time_group": header.get('transmission_date_time_group'),
@@ -494,8 +412,6 @@ def convert_dropsonde_to_stac_item(dropsonde_data: dict, original_filename: str)
         "part_b_marsden_square": header.get('part_b_marsden_square'),
         "part_b_ula": header.get('part_b_ula'),
         "part_b_ulo": header.get('part_b_ulo'),
-
-        # Sounding system information
         "sounding_system_indicator_raw": part_a_sounding_system.get('sounding_system_indicator_raw'),
         "solar_ir_correction": part_a_sounding_system.get('solar_ir_correction'),
         "radiosonde_system_used": part_a_sounding_system.get('radiosonde_system_used'),
@@ -503,64 +419,128 @@ def convert_dropsonde_to_stac_item(dropsonde_data: dict, original_filename: str)
         "launch_time_indicator": part_a_sounding_system.get('launch_time_indicator'),
         "launch_hour_utc": part_a_sounding_system.get('launch_hour_utc'),
         "launch_minute_utc": part_a_sounding_system.get('launch_minute_utc'),
-
-        # Significant wind data (custom property with a namespace prefix 'dropsonde:')
         "dropsonde:significant_wind": part_b_significant_wind,
-
-        # Remarks (if present)
         "dropsonde:remarks_mission_info": dropsonde_data.get('remarks', {}).get('mission_info'),
         "dropsonde:remarks_mbl_wnd": dropsonde_data.get('remarks', {}).get('mbl_wnd'),
         "dropsonde:remarks_aev": dropsonde_data.get('remarks', {}).get('aev'),
         "dropsonde:remarks_dlm_wnd": dropsonde_data.get('remarks', {}).get('dlm_wnd'),
         "dropsonde:remarks_wl": dropsonde_data.get('remarks', {}).get('wl')
     }
-
-    # Create the pystac Item
     item = pystac.Item(
         id=stac_id,
         geometry=geometry,
         bbox=bbox,
         datetime=dt_object_utc,
         properties=properties,
-        stac_extensions=[] # Add relevant extensions here if you use them (e.g., "https://stac-extensions.github.io/forecast/v0.2.0/schema.json")
+        stac_extensions=[]
     )
-
-    # Add the original dropsonde JSON file as an asset to the STAC Item
     item.add_asset(
         key="raw_dropsonde_message",
         asset=pystac.Asset(
             href=original_filename,
             media_type=pystac.MediaType.JSON,
             title="Raw Dropsonde Message",
-            roles=["metadata", "source-data"] # Define roles for the asset
+            roles=["metadata", "source-data"]
         )
     )
-
     return item
 
 def main():
-    """Parses TEMP DROP messages, verifys coordinates, and generates STAC items"""    
-    # Ensure 'parsed_reports' and 'stac_items' directories exist
+    """
+    Orchestrates the entire NHC Aircraft Reconnaissance data pipeline:
+    1. Downloads raw text files.
+    2. Parses raw text files into structured JSON reports.
+    3. Verifies parsed report coordinates.
+    4. Converts structured reports into STAC Items.
+    5. Generates an interactive map from the STAC Items.
+    
+    Usage: python main.py <URL_TO_REPORTS>
+    Example: python main.py https://www.nhc.noaa.gov/archive/recon/2025/REPNT3/
+    """
+    # 1. Gather Reports
+    print("--- Step 1: Gathering Raw Reports ---")
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <URL_TO_REPORTS>")
+        print("Example: python main.py https://www.nhc.noaa.gov/archive/recon/2025/REPNT3/")
+        sys.exit(1)
+    
+    reports_url = sys.argv[1]
+    gr.download_reports(reports_url)
+
+    # Ensure 'parsed_reports' and 'stac_items' directories exist (from original main.py)
     os.makedirs('parsed_reports', exist_ok=True)
     os.makedirs('stac_items', exist_ok=True)
     
-    rep_list = os.listdir('nhc_text_files')
-    for file in rep_list:
-        with open(os.path.join('nhc_text_files', file), 'r', encoding='utf-8') as temp_drop_file:
-            message = temp_drop_file.read()
-        res = parse_temp_drop(message)
-        with open(os.path.join('parsed_reports', f'{os.path.splitext(file)[0]}.json'), 'w') as result:
-            json.dump(res, result, indent=4) 
+    # 2. Parse Reports & Generate STAC Items (Original logic from main.py's main)
+    print("\n--- Step 2: Parsing Reports and Generating STAC Items ---")
+    raw_text_files_dir = 'nhc_text_files'
+    rep_list = os.listdir(raw_text_files_dir)
     
+    if not rep_list:
+        print(f"No raw text files found in '{raw_text_files_dir}'. Exiting parsing and STAC generation.")
+        return # Exit if no files to process
+
+    for file_name in rep_list:
+        raw_file_path = os.path.join(raw_text_files_dir, file_name)
+        with open(raw_file_path, 'r', encoding='utf-8') as temp_drop_file:
+            message = temp_drop_file.read()
+        
+        parsed_result = parse_temp_drop(message)
+        
+        parsed_output_path = os.path.join('parsed_reports', f'{os.path.splitext(file_name)[0]}.json')
+        with open(parsed_output_path, 'w') as result_file:
+            json.dump(parsed_result, result_file, indent=4)
+        print(f"Parsed and saved: {parsed_output_path}")
+
+    # 3. Verify Coordinates (from original main.py)
+    print("\n--- Step 3: Verifying Report Coordinates ---")
     if verify_lat_longs('parsed_reports'):
         print('All report coordinates matched!')
+    else:
+        print('Coordinate verification failed for some reports.')
+        # You might choose to exit here or continue with a warning
 
-    for file in rep_list:
-        with open(os.path.join('parsed_reports', f'{os.path.splitext(file)[0]}.json'), 'r') as temp_drop_file:
-            report = json.load(temp_drop_file)
-            stac_item = convert_dropsonde_to_stac_item(report, os.path.join('nhc_text_files', file))
-            with open(os.path.join('stac_items', f'{os.path.splitext(file)[0]}_stac.json'), 'w') as stac_spec_file:
+    # Convert to STAC Items (from original main.py)
+    stac_items_dir = 'stac_items'
+    for file_name in rep_list: # Use the original list of raw files to get base names
+        parsed_input_path = os.path.join('parsed_reports', f'{os.path.splitext(file_name)[0]}.json')
+        raw_original_path_for_stac_asset = os.path.join(raw_text_files_dir, file_name) # Path for the STAC asset href
+
+        try:
+            with open(parsed_input_path, 'r') as parsed_report_file:
+                report_data = json.load(parsed_report_file)
+            
+            stac_item = convert_dropsonde_to_stac_item(report_data, raw_original_path_for_stac_asset)
+            
+            stac_output_path = os.path.join(stac_items_dir, f'{os.path.splitext(file_name)[0]}_stac.json')
+            with open(stac_output_path, 'w') as stac_spec_file:
                 json.dump(stac_item.to_dict(), stac_spec_file, indent=2)
+            print(f"Generated STAC item: {stac_output_path}")
+        except FileNotFoundError:
+            print(f"Warning: Parsed report {parsed_input_path} not found, skipping STAC item generation for it.")
+        except Exception as e:
+            print(f"Error generating STAC item for {file_name}: {e}")
+
+    # 4. Generate Map (using map_gen.py)
+    print("\n--- Step 4: Generating Interactive Map ---")
+    if os.path.exists(stac_items_dir) and os.listdir(stac_items_dir):
+        mg.plot_stac_items_from_directory(stac_items_dir, "nhc_dropsondes_map.html")
+    else:
+        print(f"No STAC items found in '{stac_items_dir}'. Skipping map generation.")
+    
+    print("\n--- Workflow Complete ---")
 
 if __name__ == '__main__':
+    original_argv = sys.argv[:]
+
+    # Check if a URL argument is provided when running this main.py
+    if len(original_argv) < 2:
+        print("Error: Please provide a URL to download reports from.")
+        print("Usage: python main.py <URL_TO_REPORTS_INDEX>")
+        print("Example: python main.py https://www.nhc.noaa.gov/archive/recon/2023/REPNT3/")
+        sys.exit(1)
+
     main()
+
+    # Restore sys.argv to its original state if necessary for other parts of the script
+    sys.argv = original_argv

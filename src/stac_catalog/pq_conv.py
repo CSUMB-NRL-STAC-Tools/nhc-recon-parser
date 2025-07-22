@@ -3,8 +3,8 @@ import json
 import io
 import re
 from datetime import datetime, timezone
+import sys
 
-# --- Import the parsing functions from main.py ---
 from main import (
     decode_wind,
     decode_temp_dewpoint,
@@ -12,42 +12,27 @@ from main import (
     parse_temp_drop
 )
 
-# 1. Simulate Raw Dropsonde Report Content
-simulated_raw_dropsonde_report_text = """
-USNT13 KNMC 101603
-879
-XXAA 10161 99250 180000 00050
-68165 99299 78813 88291 99919 29456 26508 00165 27850 27009
-32851 21604 28009 85582 17440 30012 70214 07833 27510 58592 06757
-21004 40763 167// 88999 77999
-31313 89600 81539
-61616 AF309 WXWXA 250710143501309 OB QD3
-62626 MBL WND 27010 AEV 40001 DLM WND 26508 018400 WL150 27009 08
-1 REL 2899N09125N 153947 SP4 2899N09123N 154849 =
-XXBB 10168 99250 180000 00050
-68168 99290 78819 88291 00019 29456 11929 21605 22892 25020
-33850 17440 44780 12423 55711 09699 66699 97821 77688 00850 88644
-00868 99632 03460 11848 82850 15558 24538 31578 00837 34504 01546
-25552 00468 93545 32956 71239 02969 88537 02969 99999 00166 11808
-07759 22483 08350 33469 09759 44462 10557 55456 11161 66441 12957
-77430 14163 88416 15558
-21212 00019 26509 11946 27511 22905 29508 33850 30812 44730 29011
-55665 25012 66582 23510 77564 20010
-31313 89600 81539
-61616 AF309 WXWXA 250710143501309 OB QD3
-62626 MBL WND 27010 AEV 40001 DLM WND 26508 018400 WL150 27009 08
-1 REL 2899N09125N 153947 SP4 2899N09123N 154849 =
-;
-"""
+# 1. Read Raw Dropsonde Report Content from File
+if len(sys.argv) < 2:
+    print("Usage: python pq_conv.py <path_to_raw_dropsonde_report_text_file>")
+    sys.exit(1)
+
+input_file_path = sys.argv[1]
+try:
+    with open(input_file_path, 'r', encoding='utf-8') as f:
+        raw_dropsonde_report_text = f.read()
+except FileNotFoundError:
+    print(f"Error: The file '{input_file_path}' was not found.")
+    sys.exit(1)
+except Exception as e:
+    print(f"Error reading file '{input_file_path}': {e}")
+    sys.exit(1)
+
 
 # Call the imported parse_temp_drop function
-parsed_report_data = parse_temp_drop(simulated_raw_dropsonde_report_text)
+parsed_report_data = parse_temp_drop(raw_dropsonde_report_text)
 
 # --- Prepare data for Polars DataFrame ---
-# The parse_temp_drop function returns a structured dictionary.
-# We need to flatten this structure to create a tabular DataFrame.
-# We'll prioritize the 'part_a_mandatory_levels' and 'part_b_significant_wind'
-# as the primary observations, and merge header/remark data into each row.
 
 all_parsed_rows = []
 
@@ -121,6 +106,7 @@ if all_parsed_rows:
     # --- Write to Parquet file using Polars ---
     output_parquet_file = "dropsonde_observations.parquet"
     df.write_parquet(output_parquet_file)
+    print(f"\nSuccessfully converted data to Parquet: {output_parquet_file}")
 
 else:
     print("No valid dropsonde observations found to convert to Parquet.")
