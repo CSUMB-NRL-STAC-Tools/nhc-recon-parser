@@ -14,8 +14,6 @@ __version__ = '1.0'
 
 # Extract coordinates (longitude, latitude) from the STAC Item's geometry
 # Note: Folium expects (latitude, longitude) for map centering and marker placement
-with open('stac_items/REPPA3-KNHC.202502030505_stac.json', 'r') as temp:
-    stac_item_example = json.load(temp)
 
 def plot_single_stac_item(stac_item: dict, output_file: str = "single_dropsonde_stac_map.html"):
     """Plots a single STAC Item on a Folium map and saves it to an HTML file"""
@@ -117,10 +115,3 @@ def plot_stac_items_from_directory(directory_path: str, output_file: str = "mult
     m.save(output_file)
     print(f"\nInteractive map with multiple items saved to {output_file}")
     print(f"Open '{output_file}' in your web browser to view the map.")
-
-def main():
-    """Plots all STAC items from the stac_items directory onto a map"""    
-    plot_stac_items_from_directory('stac_items', "multiple_dropsondes_stac_map.html")
-
-if __name__ == '__main__':
-    main()
