@@ -1,6 +1,6 @@
 [project]
 name = "nhc_recon_parser"
-version = "1.0.0"
+version = "2.0.0"
 description = "A Python application for STAC catalogs"
 authors = [
     { name = "Zachary Davis", email = "zdavis@csumb.edu" },
@@ -15,7 +15,6 @@ classifiers = [
 ]
 dependencies = [
     "pystac",
-    "pypgstac[psycopg]",
     "dotenv",
     "requests",
     "beautifulsoup4",
@@ -32,6 +31,8 @@ dev = [
     "sphinx",
     "furo",
     "pytest",
+    "pytest-mock",
+    "pytest-cov"
 ]
 
 [build-system]
