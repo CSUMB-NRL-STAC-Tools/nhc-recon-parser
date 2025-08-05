@@ -4,6 +4,9 @@ import os
 import argparse
 from urllib.parse import urlparse
 import re
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 def main():
     # 1. Set up argument parsing
@@ -69,7 +72,8 @@ def main():
 
             # Generate unique filename for STAC item
             sanitized_id = re.sub(r'[^\w\d\-\.]', '_', stac_item.id)
-            output_filename = os.path.join(args.output_dir, f"{sanitized_id}.json")
+            output_filename_json = os.path.join(args.output_dir, f"{sanitized_id}.json")
+            output_filename_parquet = os.path.join(args.output_dir, f"{sanitized_id}.parquet")
 
             print(f"Parsed STAC Item (ID: {stac_item.id}):\n{json.dumps(stac_item.to_dict(), indent=4)}")
 
@@ -78,9 +82,27 @@ def main():
             except Exception as e:
                 print(f"Error adding STAC item to collection for {source_type} ({source_path}): {e}")
 
-            with open(output_filename, 'w') as f:
+            # Save as JSON file
+            with open(output_filename_json, 'w') as f:
                 json.dump(stac_item.to_dict(), f, indent=4)
-            print(f"STAC item saved to: {output_filename}")
+            print(f"STAC item saved to: {output_filename_json}")
+
+           
+            # Extract properties and convert to a pandas DataFrame
+            item_data = stac_item.to_dict()
+            properties = item_data.get('properties', {})
+            
+            # Create a DataFrame from the properties
+            df = pd.DataFrame([properties])
+
+            # Add 'id' and 'geometry' to the DataFrame for context
+            df['id'] = item_data.get('id')
+            df['geometry'] = str(item_data.get('geometry'))
+            
+            # Save the DataFrame to a Parquet file
+            df.to_parquet(output_filename_parquet)
+            print(f"STAC item saved to: {output_filename_parquet}")
+
 
         except FileNotFoundError as e:
             print(f"Error: {e}")
