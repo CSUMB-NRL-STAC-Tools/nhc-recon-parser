@@ -1,6 +1,6 @@
 [project]
 name = "nhc_recon_parser"
-version = "2.0.0"
+version = "2.1.0"
 description = "A Python application for STAC catalogs"
 authors = [
     { name = "Zachary Davis", email = "zdavis@csumb.edu" },
@@ -18,7 +18,10 @@ dependencies = [
     "dotenv",
     "requests",
     "beautifulsoup4",
-    "folium"
+    "folium",
+    "polars",
+    "pandas",
+    "pyarrow"
 ]
 
 [project.urls]
@@ -42,3 +45,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["nhc_recon_parser"] # Find packages in the 'stac_catlog' directory
 package-dir = {"" = "src"} # src layout support
+
+[project.scripts]
+parse-recon = "nhc_recon_parser.main:main"
+pq-conv = "nhc_recon_parser.pq_conv:main"
