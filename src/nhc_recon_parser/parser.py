@@ -671,7 +671,9 @@ def convert_dropsonde_to_stac_item(dropsonde_data: dict) -> pystac.Item:
     :rtype: pystac.Item
     """    
     header = dropsonde_data.get('header', {})
-    part_a_sounding_system = dropsonde_data.get('part_a_sounding_system', {})
+    part_a_sounding_system = dropsonde_data.get('part_a_sounding_system')
+    if part_a_sounding_system is None:
+        part_a_sounding_system = {}  # Ensure it's a dict to avoid KeyError
     remarks = dropsonde_data.get('remarks', {})
     dt_utc_string = dropsonde_data['message_date'].isoformat().replace('+00:00', 'Z').replace(':', '-') # Ensure 'Z' for UTC and replace : in time
 

@@ -1,8 +1,6 @@
-pystac
-requests
-beautifulsoup4
-folium
 build
 sphinx
 furo
 pytest
+pytest-mock
+pytest-cov
