@@ -4,6 +4,8 @@ version = "2.2.0"
 description = "A Python application for STAC catalogs"
 authors = [
     { name = "Zachary Davis", email = "zdavis@csumb.edu" },
+    { name = "Tyler Poyer", email = "tpoyer@csumb.edu"},
+    { name = "Thomas Wood", email = "thwood@csumb.edu"}
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
