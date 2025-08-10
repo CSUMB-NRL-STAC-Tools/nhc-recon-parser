@@ -1,6 +1,6 @@
 [project]
 name = "nhc_recon_parser"
-version = "2.1.0"
+version = "2.2.0"
 description = "A Python application for STAC catalogs"
 authors = [
     { name = "Zachary Davis", email = "zdavis@csumb.edu" },
