@@ -48,7 +48,6 @@ def main():
         help='Directory to save generated STAC JSON files. Will be created if it does not exist. Default: stac_items_output'
     )
 
-
     args = cli_parser.parse_args()
 
     processed_any_input = False
@@ -59,10 +58,14 @@ def main():
         print(f"Created output directory: {args.output_dir}")
 
     # Function to process and save a single dropsonde message
-    def process_and_save_dropsonde(source_path, is_local=False):
+    def process_and_save_dropsonde(source_path, is_local=False, stats_tracker=None):
         nonlocal processed_any_input
         processed_any_input = True
         source_type = "Local File" if is_local else "URL"
+
+        
+        if stats_tracker:
+            stats_tracker['attempted'] += 1
 
         print(f"\n--- Processing from {source_type}: {source_path} ---")
         try:
@@ -78,7 +81,10 @@ def main():
             print(f"Parsed STAC Item (ID: {stac_item.id}):\n{json.dumps(stac_item.to_dict(), indent=4)}")
 
             try:
+                # Attempt to add item to collection
                 print(api_util.add_item_to_collection(stac_item, args.collection, args.api_base_url))
+                if stats_tracker:
+                    stats_tracker['successful'] += 1
             except Exception as e:
                 print(f"Error adding STAC item to collection for {source_type} ({source_path}): {e}")
 
@@ -87,7 +93,6 @@ def main():
                 json.dump(stac_item.to_dict(), f, indent=4)
             print(f"STAC item saved to: {output_filename_json}")
 
-           
             # Extract properties and convert to a pandas DataFrame
             item_data = stac_item.to_dict()
             properties = item_data.get('properties', {})
@@ -95,14 +100,12 @@ def main():
             # Create a DataFrame from the properties
             df = pd.DataFrame([properties])
 
-            # Add 'id' and 'geometry' to the DataFrame for context
             df['id'] = item_data.get('id')
             df['geometry'] = str(item_data.get('geometry'))
             
             # Save the DataFrame to a Parquet file
             df.to_parquet(output_filename_parquet)
             print(f"STAC item saved to: {output_filename_parquet}")
-
 
         except FileNotFoundError as e:
             print(f"Error: {e}")
@@ -113,11 +116,19 @@ def main():
     if args.archive_url:
         processed_any_input = True
         print(f"Attempting to iterate URLs from archive page: {args.archive_url}")
+        
+        archive_stats = {'successful': 0, 'attempted': 0}
+
         try:
             for url in gather_reports.iter_urls_from_archive_page(args.archive_url):
-                process_and_save_dropsonde(url)
+                process_and_save_dropsonde(url, stats_tracker=archive_stats)
         except Exception as e:
             print(f"An error occurred during archive URL processing: {e}")
+        finally:
+            print("\n--- Archive Processing Summary ---")
+            print(f"Attempted to process: {archive_stats['attempted']} files")
+            print(f"Successfully uploaded to STAC server: {archive_stats['successful']} files")
+            print("----------------------------------")
 
     # 3. Process from a Single URL if provided
     elif args.url:
